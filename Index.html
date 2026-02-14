@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interval Trainer</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: black; color: white; padding: 20px; }
+        h1 { font-size: 32px; }
+        .phase { font-size: 32px; margin: 20px 0; font-weight: bold; }
+        .timer { font-size: 24px; margin: 6px 0; }
+        button { padding: 12px 20px; margin: 6px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; }
+        .start { background: green; color: white; }
+        .pause { background: orange; color: black; }
+        .stop { background: red; color: white; }
+        .lap { background: blue; color: white; }
+        input { width: 80px; font-size: 16px; margin-left: 10px; }
+        .settings { margin-bottom: 10px; }
+    </style>
+</head>
+
+<body>
+
+<h1>Interval Trainer</h1>
+
+<div class="settings">Walk Seconds: <input type="number" id="walkTime" value="10" min="1"></div>
+<div class="settings">Run Seconds: <input type="number" id="runTime" value="20" min="1"></div>
+<div class="settings">Workout Minutes: <input type="number" id="workoutMinutes" value="5" min="1"></div>
+
+<div class="phase" id="phaseText">Ready</div>
+
+<div class="timer">Phase Time: <span id="currentTimeDisplay">00:00</span></div>
+<div class="timer">Total Time: <span id="totalTimeDisplay">00:00</span></div>
+<div class="timer">Laps: <span id="laps">0</span></div>
+
+<div>
+    <button class="start" onclick="startTimer()">START</button>
+    <button class="pause" onclick="pauseTimer()">PAUSE</button>
+    <button class="stop" onclick="stopTimer()">STOP</button>
+    <button class="lap" onclick="lap()">LAP</button>
+</div>
+
+<script>
+// Register Service Worker for PWA support
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(() => console.log("SW Registered"));
+}
+
+let walkSeconds, runSeconds, workoutLimit;
+let currentSeconds = 0;
+let totalSeconds = 0;
+let isWalking = true;
+let timer = null;
+let lapsCount = 0;
+let wakeLock = null;
+
+// --- WAKE LOCK LOGIC ---
+// This prevents the phone from going into "Deep Sleep"
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log("Wake Lock active");
+        }
+    } catch (err) {
+        console.error(`${err.name}, ${err.message}`);
+    }
+}
+
+function formatTime(seconds) {
+    let mins = Math.floor(seconds / 60);
+    let secs = seconds % 60;
+    return String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
+}
+
+function speak(text) {
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.lang = "en-AU";
+    window.speechSynthesis.speak(speech);
+}
+
+function startTimer() {
+    if (timer) return;
+    
+    // Request lock when timer starts
+    requestWakeLock();
+
+    walkSeconds = parseInt(document.getElementById("walkTime").value);
+    runSeconds = parseInt(document.getElementById("runTime").value);
+    workoutLimit = parseInt(document.getElementById("workoutMinutes").value) * 60;
+
+    document.getElementById("phaseText").innerText = isWalking ? "WALKING" : "RUNNING";
+    speak(isWalking ? "Start Walking" : "Start Running");
+
+    timer = setInterval(() => {
+        currentSeconds++;
+        totalSeconds++;
+
+        document.getElementById("currentTimeDisplay").innerText = formatTime(currentSeconds);
+        document.getElementById("totalTimeDisplay").innerText = formatTime(totalSeconds);
+
+        if (totalSeconds >= workoutLimit) {
+            stopTimer();
+            document.getElementById("phaseText").innerText = "Workout Complete 🎉";
+            speak("Congratulations, workout complete");
+            return;
+        }
+
+        let phaseLimit = isWalking ? walkSeconds : runSeconds;
+
+        if (currentSeconds >= phaseLimit) {
+            currentSeconds = 0;
+            isWalking = !isWalking;
+            let msg = isWalking ? "Start Walking" : "Start Running";
+            document.getElementById("phaseText").innerText = msg.toUpperCase();
+            speak(msg);
+        }
+    }, 1000);
+}
+
+function pauseTimer() {
+    clearInterval(timer);
+    timer = null;
+    if (wakeLock) {
+        wakeLock.release();
+        wakeLock = null;
+    }
+}
+
+function stopTimer() {
+    pauseTimer();
+    currentSeconds = 0;
+    totalSeconds = 0;
+    lapsCount = 0;
+    isWalking = true;
+    document.getElementById("currentTimeDisplay").innerText = "00:00";
+    document.getElementById("totalTimeDisplay").innerText = "00:00";
+    document.getElementById("laps").innerText = 0;
+    document.getElementById("phaseText").innerText = "Ready";
+}
+
+function lap() {
+    lapsCount++;
+    document.getElementById("laps").innerText = lapsCount;
+}
+
+// Re-request wake lock if user switches back to app
+document.addEventListener('visibilitychange', async () => {
+    if (wakeLock !== null && document.visibilityState === 'visible') {
+        requestWakeLock();
+    }
+});
+</script>
+</body>
+</html>
