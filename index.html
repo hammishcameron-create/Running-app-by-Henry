@@ -1,3 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interval Trainer</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: black; color: white; padding: 20px; }
+        h1 { font-size: 32px; }
+        .phase { font-size: 32px; margin: 20px 0; font-weight: bold; }
+        .timer { font-size: 24px; margin: 6px 0; }
+        button { padding: 12px 20px; margin: 6px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; }
+        .start { background: green; color: white; }
+        .pause { background: orange; color: black; }
+        .stop { background: red; color: white; }
+        .lap { background: blue; color: white; }
+        input { width: 80px; font-size: 16px; margin-left: 10px; }
+        .settings { margin-bottom: 10px; }
+    </style>
+</head>
+
+<body>
+
+<h1>Interval Trainer</h1>
+
+<div class="settings">Walk Seconds: <input type="number" id="walkTime" value="10" min="1"></div>
+<div class="settings">Run Seconds: <input type="number" id="runTime" value="20" min="1"></div>
+<div class="settings">Workout Minutes: <input type="number" id="workoutMinutes" value="5" min="1"></div>
+
+<div class="phase" id="phaseText">Ready</div>
+
+<div class="timer">Phase Time: <span id="currentTimeDisplay">00:00</span></div>
+<div class="timer">Total Time: <span id="totalTimeDisplay">00:00</span></div>
+<div class="timer">Laps: <span id="laps">0</span></div>
+
+<div>
+    <button class="start" onclick="startTimer()">START</button>
+    <button class="pause" onclick="pauseTimer()">PAUSE</button>
+    <button class="stop" onclick="stopTimer()">STOP</button>
+    <button class="lap" onclick="lap()">LAP</button>
+</div>
+
+<script>
 // --- CONFIGURATION ---
 const WALK_TIME_DEFAULT = 10;
 const RUN_TIME_DEFAULT = 20;
@@ -174,3 +217,7 @@ document.addEventListener('visibilitychange', async () => {
         requestWakeLock();
     }
 });
+    
+</script>
+</body>
+</html>
