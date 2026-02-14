@@ -1,51 +1,9 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interval Trainer</title>
-    <link rel="manifest" href="manifest.json">
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: black; color: white; padding: 20px; }
-        h1 { font-size: 32px; }
-        .phase { font-size: 32px; margin: 20px 0; font-weight: bold; }
-        .timer { font-size: 24px; margin: 6px 0; }
-        button { padding: 12px 20px; margin: 6px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; }
-        .start { background: green; color: white; }
-        .pause { background: orange; color: black; }
-        .stop { background: red; color: white; }
-        .lap { background: blue; color: white; }
-        input { width: 80px; font-size: 16px; margin-left: 10px; }
-        .settings { margin-bottom: 10px; }
-    </style>
-</head>
+// --- CONFIGURATION ---
+const WALK_TIME_DEFAULT = 10;
+const RUN_TIME_DEFAULT = 20;
+const WORKOUT_MINUTES_DEFAULT = 5;
 
-<body>
-
-<h1>Interval Trainer</h1>
-
-<div class="settings">Walk Seconds: <input type="number" id="walkTime" value="10" min="1"></div>
-<div class="settings">Run Seconds: <input type="number" id="runTime" value="20" min="1"></div>
-<div class="settings">Workout Minutes: <input type="number" id="workoutMinutes" value="5" min="1"></div>
-
-<div class="phase" id="phaseText">Ready</div>
-
-<div class="timer">Phase Time: <span id="currentTimeDisplay">00:00</span></div>
-<div class="timer">Total Time: <span id="totalTimeDisplay">00:00</span></div>
-<div class="timer">Laps: <span id="laps">0</span></div>
-
-<div>
-    <button class="start" onclick="startTimer()">START</button>
-    <button class="pause" onclick="pauseTimer()">PAUSE</button>
-    <button class="stop" onclick="stopTimer()">STOP</button>
-    <button class="lap" onclick="lap()">LAP</button>
-</div>
-
-<script>
-// Register Service Worker for PWA support
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(() => console.log("SW Registered"));
-}
-
+// --- STATE VARIABLES ---
 let walkSeconds, runSeconds, workoutLimit;
 let currentSeconds = 0;
 let totalSeconds = 0;
@@ -53,9 +11,16 @@ let isWalking = true;
 let timer = null;
 let lapsCount = 0;
 let wakeLock = null;
+let audioCtx = null; // New audio context to keep sound alive
 
-// --- WAKE LOCK LOGIC ---
-// This prevents the phone from going into "Deep Sleep"
+// --- SERVICE WORKER REGISTRATION ---
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+        .then(() => console.log("SW Registered"))
+        .catch(err => console.log("SW Failed", err));
+}
+
+// --- WAKE LOCK (Keeps CPU running) ---
 async function requestWakeLock() {
     try {
         if ('wakeLock' in navigator) {
@@ -67,38 +32,93 @@ async function requestWakeLock() {
     }
 }
 
+// --- AUDIO KEEPALIVE (Keeps Speakers Active) ---
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Resume context if it was suspended (common on mobile)
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    // Play a silent note to unlock audio on the device
+    playSilentPing();
+}
+
+function playSilentPing() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 100; // Low frequency
+    gain.gain.value = 0.001;   // Near silent
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1); // Play for 0.1 seconds
+}
+
+// --- TEXT TO SPEECH ---
+function speak(text) {
+    // 1. Wake up the audio context first
+    initAudio(); 
+    
+    // 2. Cancel any current speech to prevent queue build-up
+    window.speechSynthesis.cancel();
+
+    // 3. Create the speech
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.lang = "en-AU"; // Australian accent
+    speech.rate = 1.1;     // Slightly faster
+    speech.volume = 1.0;   // Max volume
+
+    // 4. Force it to speak
+    window.speechSynthesis.speak(speech);
+    
+    // 5. iOS Safari Fix: Periodically resume synthesis if it gets stuck
+    if (navigator.userAgent.includes("iPhone")) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+    }
+}
+
+// --- TIMER LOGIC ---
 function formatTime(seconds) {
     let mins = Math.floor(seconds / 60);
     let secs = seconds % 60;
     return String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
 }
 
-function speak(text) {
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = "en-AU";
-    window.speechSynthesis.speak(speech);
-}
-
 function startTimer() {
     if (timer) return;
     
-    // Request lock when timer starts
+    // 1. Initialize systems
     requestWakeLock();
+    initAudio();
 
-    walkSeconds = parseInt(document.getElementById("walkTime").value);
-    runSeconds = parseInt(document.getElementById("runTime").value);
-    workoutLimit = parseInt(document.getElementById("workoutMinutes").value) * 60;
+    // 2. Get values
+    walkSeconds = parseInt(document.getElementById("walkTime").value) || WALK_TIME_DEFAULT;
+    runSeconds = parseInt(document.getElementById("runTime").value) || RUN_TIME_DEFAULT;
+    workoutLimit = (parseInt(document.getElementById("workoutMinutes").value) || WORKOUT_MINUTES_DEFAULT) * 60;
 
+    // 3. Set Initial State
     document.getElementById("phaseText").innerText = isWalking ? "WALKING" : "RUNNING";
     speak(isWalking ? "Start Walking" : "Start Running");
 
+    // 4. Start Loop
     timer = setInterval(() => {
         currentSeconds++;
         totalSeconds++;
 
+        // Update Display
         document.getElementById("currentTimeDisplay").innerText = formatTime(currentSeconds);
         document.getElementById("totalTimeDisplay").innerText = formatTime(totalSeconds);
 
+        // Keep Audio Alive (Play silent ping every 10s to keep speakers 'warm')
+        if (totalSeconds % 10 === 0) {
+            playSilentPing(); 
+        }
+
+        // Check Workout Complete
         if (totalSeconds >= workoutLimit) {
             stopTimer();
             document.getElementById("phaseText").innerText = "Workout Complete 🎉";
@@ -106,13 +126,16 @@ function startTimer() {
             return;
         }
 
+        // Check Interval Change
         let phaseLimit = isWalking ? walkSeconds : runSeconds;
-
         if (currentSeconds >= phaseLimit) {
             currentSeconds = 0;
             isWalking = !isWalking;
             let msg = isWalking ? "Start Walking" : "Start Running";
+            
             document.getElementById("phaseText").innerText = msg.toUpperCase();
+            document.body.style.backgroundColor = isWalking ? "#003300" : "#330000"; // Visual cue (Dark Green/Red)
+            
             speak(msg);
         }
     }, 1000);
@@ -122,8 +145,7 @@ function pauseTimer() {
     clearInterval(timer);
     timer = null;
     if (wakeLock) {
-        wakeLock.release();
-        wakeLock = null;
+        wakeLock.release().then(() => wakeLock = null);
     }
 }
 
@@ -133,10 +155,12 @@ function stopTimer() {
     totalSeconds = 0;
     lapsCount = 0;
     isWalking = true;
+    
     document.getElementById("currentTimeDisplay").innerText = "00:00";
     document.getElementById("totalTimeDisplay").innerText = "00:00";
     document.getElementById("laps").innerText = 0;
     document.getElementById("phaseText").innerText = "Ready";
+    document.body.style.backgroundColor = "black";
 }
 
 function lap() {
@@ -144,12 +168,9 @@ function lap() {
     document.getElementById("laps").innerText = lapsCount;
 }
 
-// Re-request wake lock if user switches back to app
+// Re-engage Wake Lock on visibility change
 document.addEventListener('visibilitychange', async () => {
     if (wakeLock !== null && document.visibilityState === 'visible') {
         requestWakeLock();
     }
 });
-</script>
-</body>
-</html>
